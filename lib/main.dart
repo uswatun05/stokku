@@ -28,16 +28,16 @@ void main() async {
     ),
   );
 
-  runApp(const SmartStockApp());
+  runApp(const StokKuApp());
 }
 
-class SmartStockApp extends StatelessWidget {
-  const SmartStockApp({super.key});
+class StokKuApp extends StatelessWidget {
+  const StokKuApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'SmartStock AI',
+      title: 'StokKu',
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
@@ -167,7 +167,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                           Row(
                             children: [
                               const Text(
-                                'WARUNG MADURA',
+                                'TOKO KELONTONG',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w900,
@@ -212,7 +212,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                               ),
                               const SizedBox(width: 6),
                               const Text(
-                                'SmartStock AI • Local DB Active',
+                                'StokKu • Local DB Active',
                                 style: TextStyle(
                                   color: Color(0xFF94A3B8),
                                   fontSize: 10,
