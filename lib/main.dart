@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
+import 'screens/login_screen.dart';
 import 'screens/kasir_screen.dart';
 import 'screens/stok_screen.dart';
 import 'screens/kulakan_screen.dart';
@@ -16,7 +17,7 @@ void main() async {
   await StorageService().init();
   await AudioService().init();
 
-  // Set orientasi portrait & status bar transparan layaknya PWA mobile web app
+  // Set orientasi portrait & status bar transparan layaknya aplikasi POS modern
   SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
@@ -61,33 +62,108 @@ class StokKuApp extends StatelessWidget {
           elevation: 12,
         ),
       ),
-      home: const MainNavigationScreen(),
+      // LoginScreen sebagai halaman pertama (initial route) saat aplikasi dijalankan
+      home: const LoginScreen(),
     );
   }
 }
 
 class MainNavigationScreen extends StatefulWidget {
-  const MainNavigationScreen({super.key});
+  final String? role; // 'Admin' atau 'Karyawan'
+  final int initialIndex;
+
+  const MainNavigationScreen({
+    super.key,
+    this.role,
+    this.initialIndex = 0,
+  });
 
   @override
   State<MainNavigationScreen> createState() => _MainNavigationScreenState();
 }
 
 class _MainNavigationScreenState extends State<MainNavigationScreen> {
-  int _currentIndex = 0;
+  late int _currentIndex;
   bool _isAudioMuted = false;
-
-  final List<Widget> _screens = const [
-    KasirScreen(),
-    StokScreen(),
-    KulakanScreen(),
-    LogScreen(),
-  ];
 
   @override
   void initState() {
     super.initState();
+    _currentIndex = widget.initialIndex;
     _isAudioMuted = AudioService().isMuted;
+  }
+
+  /// Mendeteksi role pengguna aktif (dari widget constructor argument atau RouteSettings arguments)
+  String get _currentRole {
+    if (widget.role != null && widget.role!.isNotEmpty) {
+      return widget.role!;
+    }
+    final routeArgs = ModalRoute.of(context)?.settings.arguments;
+    if (routeArgs is String && routeArgs.isNotEmpty) {
+      return routeArgs;
+    }
+    if (routeArgs is Map && routeArgs['role'] is String) {
+      return routeArgs['role'] as String;
+    }
+    return 'Karyawan';
+  }
+
+  bool get _isAdmin => _currentRole.toLowerCase() == 'admin';
+
+  /// Menyusun daftar layar sesuai Role yang sedang login:
+  /// - Admin: Kasir, Stok, Kulakan, Log Audit (4 Layar)
+  /// - Karyawan: Kasir, Stok (2 Layar, Kulakan & Log disembunyikan)
+  List<Widget> _buildScreens() {
+    if (_isAdmin) {
+      return const [
+        KasirScreen(),
+        StokScreen(),
+        KulakanScreen(),
+        LogScreen(),
+      ];
+    } else {
+      return const [
+        KasirScreen(),
+        StokScreen(),
+      ];
+    }
+  }
+
+  /// Menyusun tab BottomNavigationBar sesuai Role:
+  /// - Admin: 4 Tab (Kasir, Stok, Kulakan, Log)
+  /// - Karyawan: 2 Tab (Kasir, Stok)
+  List<BottomNavigationBarItem> _buildNavItems() {
+    if (_isAdmin) {
+      return const [
+        BottomNavigationBarItem(
+          icon: Icon(LucideIcons.scanLine),
+          label: 'Kasir',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(LucideIcons.boxes),
+          label: 'Stok',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(LucideIcons.alertOctagon),
+          label: 'Kulakan',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(LucideIcons.fileText),
+          label: 'Log Audit',
+        ),
+      ];
+    } else {
+      return const [
+        BottomNavigationBarItem(
+          icon: Icon(LucideIcons.scanLine),
+          label: 'Kasir',
+        ),
+        BottomNavigationBarItem(
+          icon: Icon(LucideIcons.boxes),
+          label: 'Stok',
+        ),
+      ];
+    }
   }
 
   void _toggleAudioMute() async {
@@ -106,10 +182,64 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     );
   }
 
+  void _confirmLogout() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF0F172A),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(20),
+          side: const BorderSide(color: Color(0xFFEF4444)),
+        ),
+        title: const Row(
+          children: [
+            Icon(LucideIcons.logOut, color: Color(0xFFEF4444), size: 22),
+            SizedBox(width: 10),
+            Text('Keluar Akun?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+          ],
+        ),
+        content: Text(
+          'Yakin ingin keluar dari akun sebagai ${_currentRole.toUpperCase()}?',
+          style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 13),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Batal', style: TextStyle(color: Colors.white70)),
+          ),
+          ElevatedButton(
+            onPressed: () {
+              Navigator.pop(ctx);
+              Navigator.pushAndRemoveUntil(
+                context,
+                MaterialPageRoute(builder: (_) => const LoginScreen()),
+                (route) => false,
+              );
+            },
+            style: ElevatedButton.styleFrom(
+              backgroundColor: const Color(0xFFEF4444),
+              foregroundColor: Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+            ),
+            child: const Text('Ya, Keluar'),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final screens = _buildScreens();
+    final navItems = _buildNavItems();
+
+    // Guard untuk index di luar jangkauan jika berganti role
+    if (_currentIndex >= screens.length) {
+      _currentIndex = 0;
+    }
+
     return Scaffold(
-      // Top Header: Warung Madura Identity & Offline Sync Status
+      // Top Header: Identitas Warung, Lencana Role, Audio Mute, & Logout
       appBar: PreferredSize(
         preferredSize: const Size.fromHeight(68.0),
         child: Container(
@@ -129,7 +259,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // Logo Warung & Status Pill
+                  // Logo Warung & Role Badge
                   Row(
                     children: [
                       Container(
@@ -144,7 +274,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                           borderRadius: BorderRadius.circular(12),
                           boxShadow: [
                             BoxShadow(
-                              color: const Color(0xFF10B981).withOpacity(0.3),
+                              color: const Color(0xFF10B981).withValues(alpha: 0.3),
                               blurRadius: 8,
                               offset: const Offset(0, 2),
                             ),
@@ -165,7 +295,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                           Row(
                             children: [
                               const Text(
-                                'TOKO KELONTONG',
+                                'WARUNG MADURA',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w900,
@@ -174,22 +304,27 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                                 ),
                               ),
                               const SizedBox(width: 6),
+                              // Lencana Role Aktif (Admin vs Karyawan)
                               Container(
                                 padding: const EdgeInsets.symmetric(
                                   horizontal: 6,
                                   vertical: 2,
                                 ),
                                 decoration: BoxDecoration(
-                                  color: const Color(0xFFDC2626).withOpacity(0.2),
+                                  color: _isAdmin
+                                      ? const Color(0xFF10B981).withValues(alpha: 0.2)
+                                      : const Color(0xFF38BDF8).withValues(alpha: 0.2),
                                   border: Border.all(
-                                    color: const Color(0xFFDC2626).withOpacity(0.4),
+                                    color: _isAdmin
+                                        ? const Color(0xFF10B981).withValues(alpha: 0.5)
+                                        : const Color(0xFF38BDF8).withValues(alpha: 0.5),
                                   ),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
-                                child: const Text(
-                                  '24 JAM',
+                                child: Text(
+                                  _isAdmin ? '👑 ADMIN' : '👷 KARYAWAN',
                                   style: TextStyle(
-                                    color: Color(0xFFFCA5A5),
+                                    color: _isAdmin ? const Color(0xFF6EE7B7) : const Color(0xFF7DD3FC),
                                     fontSize: 9,
                                     fontWeight: FontWeight.bold,
                                   ),
@@ -203,15 +338,17 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                               Container(
                                 width: 6,
                                 height: 6,
-                                decoration: const BoxDecoration(
-                                  color: Color(0xFF10B981),
+                                decoration: BoxDecoration(
+                                  color: _isAdmin ? const Color(0xFF10B981) : const Color(0xFF38BDF8),
                                   shape: BoxShape.circle,
                                 ),
                               ),
                               const SizedBox(width: 6),
-                              const Text(
-                                'StokKu • Local DB Active',
-                                style: TextStyle(
+                              Text(
+                                _isAdmin
+                                    ? 'StokKu • Hak Akses Penuh (4 Tab)'
+                                    : 'StokKu • Akses Kasir & Stok (2 Tab)',
+                                style: const TextStyle(
                                   color: Color(0xFF94A3B8),
                                   fontSize: 10,
                                   fontWeight: FontWeight.w500,
@@ -224,21 +361,39 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                     ],
                   ),
 
-                  // Audio Mute Button
-                  IconButton(
-                    onPressed: _toggleAudioMute,
-                    tooltip: _isAudioMuted ? 'Aktifkan Suara' : 'Bisukan Suara',
-                    style: IconButton.styleFrom(
-                      backgroundColor: const Color(0xFF1E293B),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(10),
+                  // Actions: Toggle Audio & Logout Button
+                  Row(
+                    children: [
+                      // Tombol Mute/Unmute Audio
+                      IconButton(
+                        onPressed: _toggleAudioMute,
+                        tooltip: _isAudioMuted ? 'Aktifkan Suara' : 'Bisukan Suara',
+                        style: IconButton.styleFrom(
+                          backgroundColor: const Color(0xFF1E293B),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        icon: Icon(
+                          _isAudioMuted ? LucideIcons.volumeX : LucideIcons.volume2,
+                          color: _isAudioMuted ? const Color(0xFF94A3B8) : const Color(0xFF10B981),
+                          size: 18,
+                        ),
                       ),
-                    ),
-                    icon: Icon(
-                      _isAudioMuted ? LucideIcons.volumeX : LucideIcons.volume2,
-                      color: _isAudioMuted ? const Color(0xFF94A3B8) : const Color(0xFF10B981),
-                      size: 20,
-                    ),
+                      const SizedBox(width: 6),
+                      // Tombol Logout Akun
+                      IconButton(
+                        onPressed: _confirmLogout,
+                        tooltip: 'Keluar Akun',
+                        style: IconButton.styleFrom(
+                          backgroundColor: const Color(0xFF1E293B),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(10),
+                          ),
+                        ),
+                        icon: const Icon(LucideIcons.logOut, color: Color(0xFFEF4444), size: 18),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -247,13 +402,15 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         ),
       ),
 
-      // Screen Body (IndexedStack preserves state across tab switches)
+      // Screen Body: IndexedStack dengan layar sesuai hak akses role aktif
       body: IndexedStack(
         index: _currentIndex,
-        children: _screens,
+        children: screens,
       ),
 
-      // Bottom Navigation Bar with 5 Navigation Items
+      // Bottom Navigation Bar:
+      // - Admin: 4 Tab (Kasir, Stok, Kulakan, Log Audit)
+      // - Karyawan: 2 Tab (Kasir, Stok)
       bottomNavigationBar: Container(
         decoration: const BoxDecoration(
           color: Color(0xFF0F172A),
@@ -271,27 +428,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               _currentIndex = index;
             });
           },
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(LucideIcons.scanLine),
-              label: 'Kasir',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(LucideIcons.boxes),
-              label: 'Stok',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(LucideIcons.alertOctagon),
-              label: 'Kulakan',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(LucideIcons.fileText),
-              label: 'Log Audit',
-            ),
-          ],
+          items: navItems,
         ),
       ),
     );
   }
 }
-
