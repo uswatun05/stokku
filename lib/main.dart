@@ -3,7 +3,6 @@ import 'package:flutter/services.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import 'screens/kasir_screen.dart';
-import 'screens/curah_screen.dart';
 import 'screens/stok_screen.dart';
 import 'screens/kulakan_screen.dart';
 import 'screens/log_screen.dart';
@@ -80,7 +79,6 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
 
   final List<Widget> _screens = const [
     KasirScreen(),
-    CurahScreen(),
     StokScreen(),
     KulakanScreen(),
     LogScreen(),
@@ -275,12 +273,8 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
           },
           items: const [
             BottomNavigationBarItem(
-              icon: Icon(LucideIcons.scan),
+              icon: Icon(LucideIcons.scanLine),
               label: 'Kasir',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(LucideIcons.sparkles),
-              label: 'Curah (AI)',
             ),
             BottomNavigationBarItem(
               icon: Icon(LucideIcons.boxes),
