@@ -1,5 +1,11 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:lucide_icons/lucide_icons.dart';
+import 'package:barcode_widget/barcode_widget.dart';
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 import '../models/item_model.dart';
 import '../services/storage_service.dart';
@@ -31,7 +37,15 @@ class _StokScreenState extends State<StokScreen> {
     'Bumbu Dapur',
     'Rokok',
     'Perawatan Tubuh',
+    'Lainnya',
   ];
+
+  final List<String> _emojiPresets = [
+    '📦', '🌾', '🥚', '🧅', '🛢️', '🥜', '🌶️', '🍚', '🥔', '☕',
+    '🍜', '🥤', '🧼', '🚬', '🧂', '🍬', '🥛', '🍞',
+  ];
+
+  final List<String> _unitPresets = ['pcs', 'kg', 'liter', 'ons', 'gram', 'bungkus', 'botol', 'kaleng', 'ikat'];
 
   @override
   void initState() {
@@ -67,6 +81,363 @@ class _StokScreenState extends State<StokScreen> {
   int get _overstockCount => _allItems.where((i) => i.status == ItemStatus.overstock).length;
 
   // ==========================================
+  // GENERATOR KODE BARCODE UNIK OTOMATIS
+  // ==========================================
+  String _generateUniqueBarcode() {
+    final random = Random();
+    String code;
+    bool exists;
+    int attempts = 0;
+
+    do {
+      attempts++;
+      final rand = 1000 + random.nextInt(9000);
+      code = 'CRH-$rand';
+      exists = _allItems.any((i) => i.barcode.trim().toUpperCase() == code);
+    } while (exists && attempts < 50);
+
+    return code;
+  }
+
+  // ==========================================
+  // CETAK LABEL BARCODE THERMAL PDF (58mm)
+  // ==========================================
+  Future<void> _printBarcodeLabel(ItemModel item) async {
+    try {
+      final doc = pw.Document();
+
+      // Format label thermal roll 58mm x 42mm standar POS printer
+      const pageFormat = PdfPageFormat(
+        58 * PdfPageFormat.mm,
+        42 * PdfPageFormat.mm,
+        marginAll: 2.0 * PdfPageFormat.mm,
+      );
+
+      final currencyFormatter = NumberFormat.currency(
+        locale: 'id_ID',
+        symbol: 'Rp ',
+        decimalDigits: 0,
+      );
+
+      doc.addPage(
+        pw.Page(
+          pageFormat: pageFormat,
+          build: (pw.Context context) {
+            return pw.Container(
+              width: double.infinity,
+              height: double.infinity,
+              padding: const pw.EdgeInsets.symmetric(horizontal: 2.0, vertical: 2.0),
+              decoration: pw.BoxDecoration(
+                border: pw.Border.all(color: PdfColors.black, width: 0.8),
+                borderRadius: const pw.BorderRadius.all(pw.Radius.circular(3)),
+              ),
+              child: pw.Column(
+                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: pw.CrossAxisAlignment.center,
+                children: [
+                  // Header Toko
+                  pw.Column(
+                    children: [
+                      pw.Text(
+                        'WARUNG MADURA 24 JAM',
+                        style: pw.TextStyle(
+                          fontSize: 7.0,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.Text(
+                        'SmartStock AI • Label Barcode Barang',
+                        style: const pw.TextStyle(fontSize: 4.8, color: PdfColors.grey700),
+                      ),
+                    ],
+                  ),
+
+                  pw.Divider(thickness: 0.4, height: 1.5),
+
+                  // Nama Barang & Harga
+                  pw.Column(
+                    children: [
+                      pw.Text(
+                        item.name.toUpperCase(),
+                        maxLines: 1,
+                        textAlign: pw.TextAlign.center,
+                        style: pw.TextStyle(
+                          fontSize: 7.8,
+                          fontWeight: pw.FontWeight.bold,
+                        ),
+                      ),
+                      pw.SizedBox(height: 0.5),
+                      pw.Text(
+                        'Satuan: ${item.unit}${item.price > 0 ? " • ${currencyFormatter.format(item.price)}" : ""}',
+                        style: const pw.TextStyle(fontSize: 5.5, color: PdfColors.grey800),
+                      ),
+                    ],
+                  ),
+
+                  // Visual Barcode Code128
+                  pw.Container(
+                    height: 20,
+                    width: 46 * PdfPageFormat.mm,
+                    child: pw.BarcodeWidget(
+                      barcode: pw.Barcode.code128(),
+                      data: item.barcode.isNotEmpty ? item.barcode : '0000000000',
+                      drawText: true,
+                      textStyle: pw.TextStyle(
+                        fontSize: 6.0,
+                        fontWeight: pw.FontWeight.bold,
+                      ),
+                    ),
+                  ),
+
+                  // Footer Waktu Cetak
+                  pw.Text(
+                    'Dicetak: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}',
+                    style: const pw.TextStyle(fontSize: 4.0, color: PdfColors.grey600),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      );
+
+      await Printing.layoutPdf(
+        onLayout: (PdfPageFormat format) async => doc.save(),
+        name: 'Label_${item.name.replaceAll(' ', '_')}_${item.barcode}',
+      );
+    } catch (e) {
+      debugPrint('Gagal cetak label barcode: $e');
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('⚠️ Gagal mencetak label: $e'),
+          backgroundColor: const Color(0xFFDC2626),
+        ),
+      );
+    }
+  }
+
+  // ==========================================
+  // MODAL ALERTDIALOG CETAK BARCODE (SETELAH SIMPAN)
+  // ==========================================
+  void _showBarcodeSuccessDialog(ItemModel item) {
+    final currencyFormatter = NumberFormat.currency(
+      locale: 'id_ID',
+      symbol: 'Rp ',
+      decimalDigits: 0,
+    );
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF0F172A),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24),
+          side: const BorderSide(color: Color(0xFF10B981), width: 1.5),
+        ),
+        titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+        contentPadding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(LucideIcons.checkCircle2, color: Color(0xFF10B981), size: 22),
+            ),
+            const SizedBox(width: 10),
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Barang Berhasil Disimpan!',
+                    style: TextStyle(color: Colors.white, fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  Text(
+                    'Barcode Otomatis Siap Dicetak',
+                    style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              // Preview Kertas Label Thermal Putih
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.4),
+                      blurRadius: 10,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    const Text(
+                      'WARUNG MADURA 24 JAM',
+                      style: TextStyle(
+                        color: Colors.black,
+                        fontWeight: FontWeight.w900,
+                        fontSize: 12,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
+                    const Text(
+                      'SmartStock AI • Label Barcode',
+                      style: TextStyle(color: Color(0xFF64748B), fontSize: 9),
+                    ),
+                    const Divider(color: Colors.black26, height: 12, thickness: 1),
+
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(item.img, style: const TextStyle(fontSize: 22)),
+                        const SizedBox(width: 6),
+                        Flexible(
+                          child: Text(
+                            item.name,
+                            style: const TextStyle(
+                              color: Colors.black,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 14,
+                            ),
+                            textAlign: TextAlign.center,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      'Satuan: ${item.unit} • ${currencyFormatter.format(item.price)}',
+                      style: const TextStyle(
+                        color: Color(0xFF334155),
+                        fontWeight: FontWeight.w600,
+                        fontSize: 11,
+                      ),
+                    ),
+
+                    const SizedBox(height: 10),
+
+                    // VISUAL BARCODE MENGGUNAKAN BARCODEWIDGET
+                    Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        border: Border.all(color: Colors.black12),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: BarcodeWidget(
+                        barcode: Barcode.code128(),
+                        data: item.barcode.isNotEmpty ? item.barcode : '0000000000',
+                        width: 210,
+                        height: 65,
+                        color: Colors.black,
+                        drawText: true,
+                        style: const TextStyle(
+                          color: Colors.black,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 11,
+                          letterSpacing: 1.2,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(height: 6),
+                    Text(
+                      'Dicetak: ${DateFormat('dd/MM/yyyy HH:mm').format(DateTime.now())}',
+                      style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 8.5),
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 12),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1E293B),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFF334155)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(LucideIcons.printer, color: Color(0xFF10B981), size: 14),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Tempelkan label barcode thermal ini ke toples/wadah ${item.name} agar kasir dapat memindainya langsung.',
+                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5, height: 1.3),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          Row(
+            children: [
+              Expanded(
+                flex: 2,
+                child: OutlinedButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF94A3B8),
+                    side: const BorderSide(color: Color(0xFF334155)),
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  child: const Text('Tutup / Selesai', style: TextStyle(fontWeight: FontWeight.w600, fontSize: 11.5)),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 3,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    await _printBarcodeLabel(item);
+                  },
+                  icon: const Icon(LucideIcons.printer, size: 16),
+                  label: const Text(
+                    'Cetak Label Barcode',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 11.5),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.black,
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    elevation: 2,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ==========================================
   // QUICK STOCK ADJUSTMENT (+/-)
   // ==========================================
   Future<void> _handleStockDelta(String id, double delta) async {
@@ -78,7 +449,7 @@ class _StokScreenState extends State<StokScreen> {
   }
 
   // ==========================================
-  // MODAL / DIALOG: TAMBAH BARANG BARU
+  // MODAL / DIALOG: TAMBAH BARANG BARU (DINAMIS)
   // ==========================================
   void _openAddProductDialog() {
     final nameCtrl = TextEditingController();
@@ -88,7 +459,7 @@ class _StokScreenState extends State<StokScreen> {
     final maxCtrl = TextEditingController(text: '30');
     final unitCtrl = TextEditingController(text: 'pcs');
     final priceCtrl = TextEditingController(text: '5000');
-    String selectedType = 'barcode';
+    String selectedType = 'barcode'; // 'barcode' atau 'curah'
     String selectedCat = 'Sembako';
     String selectedEmoji = '📦';
 
@@ -96,26 +467,46 @@ class _StokScreenState extends State<StokScreen> {
       context: context,
       builder: (ctx) => StatefulBuilder(
         builder: (dialogCtx, setDialogState) {
+          final isCurahMode = selectedType == 'curah';
+
           return AlertDialog(
             backgroundColor: const Color(0xFF0F172A),
             shape: RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(24),
-              side: const BorderSide(color: Color(0xFF10B981), width: 1.2),
+              side: BorderSide(
+                color: isCurahMode ? const Color(0xFF818CF8) : const Color(0xFF10B981),
+                width: 1.5,
+              ),
             ),
             title: Row(
               children: [
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: const Color(0xFF10B981).withOpacity(0.15),
+                    color: (isCurahMode ? const Color(0xFF6366F1) : const Color(0xFF10B981)).withValues(alpha: 0.15),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(LucideIcons.packagePlus, color: Color(0xFF10B981), size: 20),
+                  child: Icon(
+                    isCurahMode ? LucideIcons.sparkles : LucideIcons.packagePlus,
+                    color: isCurahMode ? const Color(0xFFA5B4FC) : const Color(0xFF10B981),
+                    size: 20,
+                  ),
                 ),
                 const SizedBox(width: 10),
-                const Text(
-                  'Tambah Barang Baru',
-                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        isCurahMode ? 'Tambah Barang Curah' : 'Tambah Barang Baru',
+                        style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                      ),
+                      Text(
+                        isCurahMode ? 'Barcode dibuat & dicetak otomatis' : 'Kemasan dengan barcode pabrik',
+                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -124,14 +515,14 @@ class _StokScreenState extends State<StokScreen> {
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Tipe Barang: Barcode vs Curah
-                  const Text('Tipe Komoditas:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                  // 1. Selector Mode: Kemasan Barcode vs Barang Curah
+                  const Text('Pilih Mode Barang:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
                   const SizedBox(height: 6),
                   Row(
                     children: [
                       Expanded(
                         child: ChoiceChip(
-                          label: const Text('Kemasan Barcode'),
+                          label: const Text('Barang Kemasan'),
                           selected: selectedType == 'barcode',
                           selectedColor: const Color(0xFF10B981),
                           backgroundColor: const Color(0xFF1E293B),
@@ -145,7 +536,9 @@ class _StokScreenState extends State<StokScreen> {
                               setDialogState(() {
                                 selectedType = 'barcode';
                                 barcodeCtrl.clear();
+                                unitCtrl.text = 'pcs';
                                 selectedEmoji = '📦';
+                                selectedCat = 'Sembako';
                               });
                             }
                           },
@@ -154,7 +547,7 @@ class _StokScreenState extends State<StokScreen> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: ChoiceChip(
-                          label: const Text('Curah (AI Vision)'),
+                          label: const Text('Barang Curah'),
                           selected: selectedType == 'curah',
                           selectedColor: const Color(0xFF818CF8),
                           backgroundColor: const Color(0xFF1E293B),
@@ -167,9 +560,10 @@ class _StokScreenState extends State<StokScreen> {
                             if (val) {
                               setDialogState(() {
                                 selectedType = 'curah';
-                                barcodeCtrl.text = StorageService().generateCurahBarcode();
+                                barcodeCtrl.text = _generateUniqueBarcode();
                                 unitCtrl.text = 'kg';
                                 selectedEmoji = '🌾';
+                                selectedCat = 'Sembako Curah';
                               });
                             }
                           },
@@ -177,39 +571,51 @@ class _StokScreenState extends State<StokScreen> {
                       ),
                     ],
                   ),
+
                   const SizedBox(height: 12),
 
-                  // Nama Barang
-                  _buildDialogTextField('Nama Barang', nameCtrl, hint: 'Misal: Telur Curah / Sabun Mandi'),
+                  // 2. Nama Barang
+                  _buildDialogTextField(
+                    'Nama Barang',
+                    nameCtrl,
+                    hint: isCurahMode ? 'Misal: Telur Curah / Beras Rojo' : 'Misal: Indomie Goreng / Sabun Lifebuoy',
+                  ),
+
                   const SizedBox(height: 10),
 
-                  // Barcode (Auto-generate if curah)
+                  // 3. Kolom Barcode Dinamis
                   Row(
                     children: [
                       Expanded(
                         child: _buildDialogTextField(
-                          'Kode Barcode',
+                          isCurahMode ? 'Kode Barcode Otomatis' : 'Kode Barcode Pabrik',
                           barcodeCtrl,
-                          hint: 'Kode EAN / UPC / CRH',
+                          hint: isCurahMode ? 'CRH-XXXX' : 'Scan atau ketik kode barcode kemasan',
+                          readOnly: isCurahMode, // Jika curah, barcode terisi otomatis
                         ),
                       ),
-                      if (selectedType == 'curah') ...[
+                      if (isCurahMode) ...[
                         const SizedBox(width: 8),
                         IconButton(
                           icon: const Icon(LucideIcons.refreshCw, color: Color(0xFF818CF8), size: 18),
-                          tooltip: 'Generate Barcode Curah Baru',
+                          tooltip: 'Generate Barcode Baru',
+                          style: IconButton.styleFrom(
+                            backgroundColor: const Color(0xFF1E293B),
+                            padding: const EdgeInsets.all(8),
+                          ),
                           onPressed: () {
                             setDialogState(() {
-                              barcodeCtrl.text = StorageService().generateCurahBarcode();
+                              barcodeCtrl.text = _generateUniqueBarcode();
                             });
                           },
                         ),
                       ],
                     ],
                   ),
+
                   const SizedBox(height: 10),
 
-                  // Kategori & Emoji
+                  // 4. Kategori & Pilihan Emoji
                   Row(
                     children: [
                       Expanded(
@@ -228,7 +634,7 @@ class _StokScreenState extends State<StokScreen> {
                               ),
                               child: DropdownButtonHideUnderline(
                                 child: DropdownButton<String>(
-                                  value: selectedCat,
+                                  value: _categories.contains(selectedCat) ? selectedCat : 'Lainnya',
                                   isExpanded: true,
                                   dropdownColor: const Color(0xFF1E293B),
                                   style: const TextStyle(color: Colors.white, fontSize: 12),
@@ -248,38 +654,139 @@ class _StokScreenState extends State<StokScreen> {
                       const SizedBox(width: 10),
                       Expanded(
                         flex: 2,
-                        child: _buildDialogTextField('Satuan', unitCtrl, hint: 'pcs/kg/liter'),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Ikon Emoji:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                            const SizedBox(height: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1E293B),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFF334155)),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: selectedEmoji,
+                                  isExpanded: true,
+                                  dropdownColor: const Color(0xFF1E293B),
+                                  style: const TextStyle(fontSize: 16),
+                                  items: _emojiPresets
+                                      .map((e) => DropdownMenuItem(value: e, child: Text(e)))
+                                      .toList(),
+                                  onChanged: (val) {
+                                    if (val != null) setDialogState(() => selectedEmoji = val);
+                                  },
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
+
                   const SizedBox(height: 10),
 
-                  // Stok Awal & Harga
+                  // 5. Satuan & Stok Awal
                   Row(
                     children: [
                       Expanded(
-                        child: _buildDialogTextField('Stok Awal', stockCtrl, keyboardType: TextInputType.number),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const Text('Satuan:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                            const SizedBox(height: 4),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF1E293B),
+                                borderRadius: BorderRadius.circular(10),
+                                border: Border.all(color: const Color(0xFF334155)),
+                              ),
+                              child: DropdownButtonHideUnderline(
+                                child: DropdownButton<String>(
+                                  value: _unitPresets.contains(unitCtrl.text) ? unitCtrl.text : 'pcs',
+                                  isExpanded: true,
+                                  dropdownColor: const Color(0xFF1E293B),
+                                  style: const TextStyle(color: Colors.white, fontSize: 12),
+                                  items: _unitPresets
+                                      .map((u) => DropdownMenuItem(value: u, child: Text(u)))
+                                      .toList(),
+                                  onChanged: (val) {
+                                    if (val != null) {
+                                      setDialogState(() => unitCtrl.text = val);
+                                    }
+                                  },
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: _buildDialogTextField('Harga (Rp)', priceCtrl, keyboardType: TextInputType.number),
+                        child: _buildDialogTextField(
+                          'Stok Awal (${unitCtrl.text})',
+                          stockCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
                       ),
                     ],
                   ),
+
                   const SizedBox(height: 10),
 
-                  // Batas Min (Alert) & Batas Max (Overstock)
+                  // 6. Harga Jual Satuan
+                  _buildDialogTextField('Harga Jual (Rp)', priceCtrl, keyboardType: TextInputType.number),
+
+                  const SizedBox(height: 10),
+
+                  // 7. Batas Min (Alert) & Batas Max (Overstock)
                   Row(
                     children: [
                       Expanded(
-                        child: _buildDialogTextField('Batas Min (Alert)', minCtrl, keyboardType: TextInputType.number),
+                        child: _buildDialogTextField(
+                          'Batas Min (Alert)',
+                          minCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: _buildDialogTextField('Batas Max (Gudang)', maxCtrl, keyboardType: TextInputType.number),
+                        child: _buildDialogTextField(
+                          'Batas Max (Gudang)',
+                          maxCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
                       ),
                     ],
                   ),
+
+                  if (isCurahMode) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF6366F1).withValues(alpha: 0.12),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: const Color(0xFF6366F1).withValues(alpha: 0.3)),
+                      ),
+                      child: const Row(
+                        children: [
+                          Icon(LucideIcons.printer, color: Color(0xFF818CF8), size: 16),
+                          SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              'Pop-up cetak label thermal akan otomatis muncul setelah barang curah ini disimpan.',
+                              style: TextStyle(color: Color(0xFFC7D2FE), fontSize: 10.5),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -288,18 +795,30 @@ class _StokScreenState extends State<StokScreen> {
                 onPressed: () => Navigator.pop(ctx),
                 child: const Text('Batal', style: TextStyle(color: Color(0xFF94A3B8))),
               ),
-              ElevatedButton(
+              ElevatedButton.icon(
                 onPressed: () async {
                   final name = nameCtrl.text.trim();
-                  if (name.isEmpty) return;
+                  if (name.isEmpty) {
+                    AudioService().playWarning();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Nama barang tidak boleh kosong!'),
+                        backgroundColor: Color(0xFFDC2626),
+                      ),
+                    );
+                    return;
+                  }
+
+                  String barcode = barcodeCtrl.text.trim();
+                  if (barcode.isEmpty) {
+                    barcode = isCurahMode ? _generateUniqueBarcode() : '0000000000';
+                  }
 
                   final newItem = ItemModel(
                     id: StorageService().generateNextItemId(),
                     name: name,
                     type: selectedType,
-                    barcode: barcodeCtrl.text.trim().isNotEmpty
-                        ? barcodeCtrl.text.trim()
-                        : (selectedType == 'curah' ? StorageService().generateCurahBarcode() : '000000000000'),
+                    barcode: barcode,
                     category: selectedCat,
                     stock: double.tryParse(stockCtrl.text) ?? 10.0,
                     minStock: double.tryParse(minCtrl.text) ?? 5.0,
@@ -314,21 +833,32 @@ class _StokScreenState extends State<StokScreen> {
                     await AudioService().playSuccess();
                     if (!mounted) return;
                     Navigator.pop(ctx);
-                    _loadData();
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('✅ ${newItem.name} berhasil ditambahkan ke inventaris.'),
-                        backgroundColor: const Color(0xFF10B981),
-                      ),
-                    );
+                    await _loadData();
+
+                    // JIKA BARANG CURAH: TAMPILKAN POP-UP CETAK LABEL BARCODE
+                    if (isCurahMode) {
+                      _showBarcodeSuccessDialog(newItem);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text('✅ ${newItem.name} berhasil ditambahkan ke inventaris.'),
+                          backgroundColor: const Color(0xFF10B981),
+                        ),
+                      );
+                    }
                   }
                 },
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF10B981),
-                  foregroundColor: Colors.black,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                icon: const Icon(LucideIcons.save, size: 16),
+                label: Text(
+                  isCurahMode ? 'Simpan & Siapkan Barcode' : 'Simpan Barang',
+                  style: const TextStyle(fontWeight: FontWeight.bold),
                 ),
-                child: const Text('Simpan Barang', style: TextStyle(fontWeight: FontWeight.bold)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: isCurahMode ? const Color(0xFF6366F1) : const Color(0xFF10B981),
+                  foregroundColor: isCurahMode ? Colors.white : Colors.black,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                ),
               ),
             ],
           );
@@ -360,10 +890,17 @@ class _StokScreenState extends State<StokScreen> {
             ),
             title: Row(
               children: [
-                const Icon(LucideIcons.edit2, color: Color(0xFF38BDF8), size: 20),
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF38BDF8).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: const Icon(LucideIcons.edit2, color: Color(0xFF38BDF8), size: 20),
+                ),
                 const SizedBox(width: 10),
                 const Text(
-                  'Edit Data Produk',
+                  'Edit Data Barang',
                   style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
                 ),
               ],
@@ -371,40 +908,48 @@ class _StokScreenState extends State<StokScreen> {
             content: SingleChildScrollView(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   _buildDialogTextField('Nama Barang', nameCtrl),
                   const SizedBox(height: 10),
-                  const Text('Kategori:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF1E293B),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(color: const Color(0xFF334155)),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _categories.contains(selectedCat) ? selectedCat : 'Sembako',
-                        isExpanded: true,
-                        dropdownColor: const Color(0xFF1E293B),
-                        style: const TextStyle(color: Colors.white, fontSize: 12),
-                        items: _categories
-                            .where((c) => c != 'Semua')
-                            .map((c) => DropdownMenuItem(value: c, child: Text(c)))
-                            .toList(),
-                        onChanged: (val) {
-                          if (val != null) setDialogState(() => selectedCat = val);
-                        },
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text('Kategori:', style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11)),
+                      const SizedBox(height: 4),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1E293B),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: const Color(0xFF334155)),
+                        ),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
+                            value: _categories.contains(selectedCat) ? selectedCat : 'Lainnya',
+                            isExpanded: true,
+                            dropdownColor: const Color(0xFF1E293B),
+                            style: const TextStyle(color: Colors.white, fontSize: 12),
+                            items: _categories
+                                .where((c) => c != 'Semua')
+                                .map((c) => DropdownMenuItem(value: c, child: Text(c)))
+                                .toList(),
+                            onChanged: (val) {
+                              if (val != null) setDialogState(() => selectedCat = val);
+                            },
+                          ),
+                        ),
                       ),
-                    ),
+                    ],
                   ),
                   const SizedBox(height: 10),
                   Row(
                     children: [
                       Expanded(
-                        child: _buildDialogTextField('Stok Saat Ini (${item.unit})', stockCtrl, keyboardType: TextInputType.number),
+                        child: _buildDialogTextField(
+                          'Stok Saat Ini (${item.unit})',
+                          stockCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
@@ -416,11 +961,19 @@ class _StokScreenState extends State<StokScreen> {
                   Row(
                     children: [
                       Expanded(
-                        child: _buildDialogTextField('Batas Min', minCtrl, keyboardType: TextInputType.number),
+                        child: _buildDialogTextField(
+                          'Batas Min',
+                          minCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
                       ),
                       const SizedBox(width: 10),
                       Expanded(
-                        child: _buildDialogTextField('Batas Max', maxCtrl, keyboardType: TextInputType.number),
+                        child: _buildDialogTextField(
+                          'Batas Max',
+                          maxCtrl,
+                          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        ),
                       ),
                     ],
                   ),
@@ -509,6 +1062,7 @@ class _StokScreenState extends State<StokScreen> {
     TextEditingController controller, {
     String? hint,
     TextInputType keyboardType = TextInputType.text,
+    bool readOnly = false,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -518,14 +1072,19 @@ class _StokScreenState extends State<StokScreen> {
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 2),
           decoration: BoxDecoration(
-            color: const Color(0xFF1E293B),
+            color: readOnly ? const Color(0xFF0F172A) : const Color(0xFF1E293B),
             borderRadius: BorderRadius.circular(10),
-            border: Border.all(color: const Color(0xFF334155)),
+            border: Border.all(color: readOnly ? const Color(0xFF6366F1).withValues(alpha: 0.5) : const Color(0xFF334155)),
           ),
           child: TextField(
             controller: controller,
             keyboardType: keyboardType,
-            style: const TextStyle(color: Colors.white, fontSize: 12),
+            readOnly: readOnly,
+            style: TextStyle(
+              color: readOnly ? const Color(0xFFA5B4FC) : Colors.white,
+              fontWeight: readOnly ? FontWeight.bold : FontWeight.normal,
+              fontSize: 12,
+            ),
             decoration: InputDecoration(
               hintText: hint,
               hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 11),
@@ -612,12 +1171,12 @@ class _StokScreenState extends State<StokScreen> {
 
                   // 4. LISTVIEW INVENTORY ITEMS
                   if (filtered.isEmpty)
-                    SliverFillRemaining(
+                    const SliverFillRemaining(
                       hasScrollBody: false,
                       child: Center(
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
-                          children: const [
+                          children: [
                             Icon(LucideIcons.packageSearch, color: Color(0xFF334155), size: 48),
                             SizedBox(height: 10),
                             Text(
@@ -645,16 +1204,8 @@ class _StokScreenState extends State<StokScreen> {
                               onAdjustStock: (delta) => _handleStockDelta(item.id, delta),
                               onEdit: () => _openEditProductDialog(item),
                               onDelete: () => _confirmDeleteProduct(item),
-                              onPrintBarcode: item.isCurah
-                                  ? () {
-                                      ScaffoldMessenger.of(context).showSnackBar(
-                                        SnackBar(
-                                          content: Text('🖨️ Label Barcode: ${item.name} (${item.barcode}) Siap Dicetak'),
-                                          backgroundColor: const Color(0xFF6366F1),
-                                        ),
-                                      );
-                                    }
-                                  : null,
+                              // Tombol Cetak Barcode Thermal langsung dari kartu produk
+                              onPrintBarcode: () => _showBarcodeSuccessDialog(item),
                             );
                           },
                           childCount: filtered.length,
@@ -701,9 +1252,9 @@ class _StokScreenState extends State<StokScreen> {
         _buildStatItem(
           label: 'Overstock',
           value: '$_overstockCount',
-          sub: 'Tahan Kulak',
+          sub: 'Tunda Kulak',
           color: const Color(0xFFEF4444),
-          icon: LucideIcons.shieldAlert,
+          icon: LucideIcons.alertOctagon,
         ),
       ],
     );
@@ -718,38 +1269,28 @@ class _StokScreenState extends State<StokScreen> {
   }) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: const Color(0xFF0F172A),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: color.withOpacity(0.3)),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: color.withValues(alpha: 0.25)),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Icon(icon, size: 12, color: color),
-                const SizedBox(width: 4),
-                Text(label, style: const TextStyle(color: Color(0xFF64748B), fontSize: 9.5)),
+                Text(label, style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10)),
+                Icon(icon, size: 14, color: color),
               ],
             ),
-            const SizedBox(height: 2),
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.baseline,
-              textBaseline: TextBaseline.alphabetic,
-              children: [
-                Text(
-                  value,
-                  style: TextStyle(color: color, fontSize: 16, fontWeight: FontWeight.w900),
-                ),
-                const SizedBox(width: 4),
-                Text(
-                  sub,
-                  style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 9),
-                ),
-              ],
+            const SizedBox(height: 4),
+            Text(
+              value,
+              style: TextStyle(color: color, fontSize: 18, fontWeight: FontWeight.bold),
             ),
+            Text(sub, style: const TextStyle(color: Color(0xFF64748B), fontSize: 9.5)),
           ],
         ),
       ),
@@ -758,40 +1299,37 @@ class _StokScreenState extends State<StokScreen> {
 
   Widget _buildSearchBar() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       decoration: BoxDecoration(
         color: const Color(0xFF0F172A),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(color: const Color(0xFF1E293B)),
       ),
-      child: Row(
-        children: [
-          const Icon(LucideIcons.search, color: Color(0xFF64748B), size: 16),
-          const SizedBox(width: 8),
-          Expanded(
-            child: TextField(
-              controller: _searchController,
-              onChanged: (val) => setState(() => _searchQuery = val),
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-              decoration: const InputDecoration(
-                hintText: 'Cari nama barang atau barcode...',
-                hintStyle: TextStyle(color: Color(0xFF64748B), fontSize: 11),
-                border: InputBorder.none,
-                isDense: true,
-              ),
-            ),
-          ),
-          if (_searchQuery.isNotEmpty)
-            IconButton(
-              icon: const Icon(LucideIcons.x, color: Color(0xFF64748B), size: 14),
-              constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
-              padding: EdgeInsets.zero,
-              onPressed: () {
-                _searchController.clear();
-                setState(() => _searchQuery = '');
-              },
-            ),
-        ],
+      child: TextField(
+        controller: _searchController,
+        style: const TextStyle(color: Colors.white, fontSize: 13),
+        onChanged: (val) {
+          setState(() {
+            _searchQuery = val.trim();
+          });
+        },
+        decoration: InputDecoration(
+          hintText: 'Cari nama produk atau kode barcode...',
+          hintStyle: const TextStyle(color: Color(0xFF64748B), fontSize: 12),
+          prefixIcon: const Icon(LucideIcons.search, color: Color(0xFF10B981), size: 18),
+          suffixIcon: _searchQuery.isNotEmpty
+              ? IconButton(
+                  icon: const Icon(LucideIcons.x, size: 16, color: Color(0xFF94A3B8)),
+                  onPressed: () {
+                    _searchController.clear();
+                    setState(() {
+                      _searchQuery = '';
+                    });
+                  },
+                )
+              : null,
+          border: InputBorder.none,
+          contentPadding: const EdgeInsets.symmetric(vertical: 12),
+        ),
       ),
     );
   }
