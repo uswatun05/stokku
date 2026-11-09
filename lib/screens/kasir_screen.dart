@@ -66,10 +66,12 @@ class _KasirScreenState extends State<KasirScreen> with SingleTickerProviderStat
     );
 
     _loadCatalog();
+    StorageService().activeTokoNotifier.addListener(_onTokoChanged);
   }
 
   @override
   void dispose() {
+    StorageService().activeTokoNotifier.removeListener(_onTokoChanged);
     _cameraController.dispose();
     _laserAnimController.dispose();
     _barcodeInputController.dispose();
@@ -77,8 +79,20 @@ class _KasirScreenState extends State<KasirScreen> with SingleTickerProviderStat
     super.dispose();
   }
 
+  void _onTokoChanged() {
+    if (mounted) {
+      _loadCatalog();
+      setState(() {
+        _cartItems.clear();
+        _lastScannedItem = null;
+        _scanStatusText = 'Siap Scan Barcode';
+        _scanStatusMeta = 'Cabang aktif: ${StorageService().activeTokoName}';
+      });
+    }
+  }
+
   Future<void> _loadCatalog() async {
-    final items = await StorageService().loadInventory();
+    final items = await StorageService().loadItems();
     if (mounted) {
       setState(() {
         _catalogItems = items;
@@ -580,12 +594,27 @@ class _KasirScreenState extends State<KasirScreen> with SingleTickerProviderStat
                         'Terminal Kasir Barcode',
                         style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
                       ),
-                      Text(
-                        _isCameraOpen ? 'Scanner Kamera Aktif' : 'Mode Manual (Kamera Tutup)',
-                        style: TextStyle(
-                          color: _isCameraOpen ? const Color(0xFF6EE7B7) : const Color(0xFF94A3B8),
-                          fontSize: 10.5,
-                        ),
+                      Row(
+                        children: [
+                          const Icon(LucideIcons.mapPin, color: Color(0xFF10B981), size: 11),
+                          const SizedBox(width: 3),
+                          Text(
+                            StorageService().activeTokoName,
+                            style: const TextStyle(
+                              color: Color(0xFF38BDF8),
+                              fontSize: 10.5,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Text(
+                            _isCameraOpen ? '• Scanner Aktif' : '• Manual',
+                            style: TextStyle(
+                              color: _isCameraOpen ? const Color(0xFF6EE7B7) : const Color(0xFF94A3B8),
+                              fontSize: 10.5,
+                            ),
+                          ),
+                        ],
                       ),
                     ],
                   ),

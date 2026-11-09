@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons/lucide_icons.dart';
 
 import '../main.dart';
+import '../services/storage_service.dart';
 import '../services/audio_service.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -41,36 +42,24 @@ class _LoginScreenState extends State<LoginScreen> {
 
     if (!mounted) return;
 
-    // ==========================================
-    // LOGIKA LOGIN DUMMY ROLE-BASED (RBAC)
-    // ==========================================
     final userLower = username.toLowerCase();
 
+    // ==========================================
+    // LOGIKA LOGIN MULTI-CABANG & ROLE-BASED
+    // ==========================================
     if (userLower == 'admin' && password == 'admin123') {
-      // 1. Role: ADMIN -> Akses penuh ke seluruh menu (Kasir, Stok, Kulakan, Log)
+      // 1. Role: ADMIN -> Buka Pop-up Dialog "Pilih Cabang" (Toko Pusat, Cabang 1, Cabang 2)
       await AudioService().playSuccess();
+      setState(() => _isLoading = false);
       if (!mounted) return;
-
-      _showSuccessSnackBar('Login berhasil! Selamat datang, Admin.');
-      await Future.delayed(const Duration(milliseconds: 350));
-      if (!mounted) return;
-
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const MainNavigationScreen(
-            role: 'Admin',
-            initialIndex: 0,
-          ),
-          settings: const RouteSettings(arguments: 'Admin'),
-        ),
-      );
+      _showBranchSelectionDialog();
     } else if (userLower == 'karyawan' && password == 'karyawan123') {
-      // 2. Role: KARYAWAN -> Hanya akses tab Kasir & Stok (Kulakan & Log disembunyikan)
+      // 2. Role: KARYAWAN -> Otomatis set activeTokoId ke "Toko Pusat", langsung ke layar utama
       await AudioService().playSuccess();
+      await StorageService().setActiveToko('Toko Pusat');
       if (!mounted) return;
 
-      _showSuccessSnackBar('Login berhasil! Selamat datang, Karyawan.');
+      _showSuccessSnackBar('Login berhasil! Cabang aktif: Toko Pusat.');
       await Future.delayed(const Duration(milliseconds: 350));
       if (!mounted) return;
 
@@ -79,9 +68,12 @@ class _LoginScreenState extends State<LoginScreen> {
         MaterialPageRoute(
           builder: (context) => const MainNavigationScreen(
             role: 'Karyawan',
+            tokoId: 'Toko Pusat',
             initialIndex: 0,
           ),
-          settings: const RouteSettings(arguments: 'Karyawan'),
+          settings: const RouteSettings(
+            arguments: {'role': 'Karyawan', 'tokoId': 'Toko Pusat'},
+          ),
         ),
       );
     } else {
@@ -90,6 +82,221 @@ class _LoginScreenState extends State<LoginScreen> {
       setState(() => _isLoading = false);
       _showErrorSnackBar('Username atau Password salah! Periksa kembali akun Anda.');
     }
+  }
+
+  /// Dialog Pilihan Cabang khusus Akun Admin
+  void _showBranchSelectionDialog() {
+    String selectedBranch = StorageService().activeTokoId;
+
+    final List<Map<String, dynamic>> branches = [
+      {
+        'id': 'Toko Pusat',
+        'name': 'Toko Pusat',
+        'desc': 'Gudang Utama & Terminal Kasir Pusat',
+        'icon': LucideIcons.building2,
+        'badge': 'Pusat',
+        'color': const Color(0xFF10B981),
+      },
+      {
+        'id': 'Cabang 1',
+        'name': 'Cabang 1',
+        'desc': 'Outlet Ritel Cabang 1',
+        'icon': LucideIcons.store,
+        'badge': 'Cabang',
+        'color': const Color(0xFF38BDF8),
+      },
+      {
+        'id': 'Cabang 2',
+        'name': 'Cabang 2',
+        'desc': 'Outlet Ritel Cabang 2',
+        'icon': LucideIcons.store,
+        'badge': 'Cabang',
+        'color': const Color(0xFFA855F7),
+      },
+    ];
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogCtx) => StatefulBuilder(
+        builder: (ctx, setDialogState) {
+          return AlertDialog(
+            backgroundColor: const Color(0xFF0F172A),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(24),
+              side: const BorderSide(color: Color(0xFF10B981), width: 1.5),
+            ),
+            titlePadding: const EdgeInsets.fromLTRB(22, 22, 22, 0),
+            contentPadding: const EdgeInsets.fromLTRB(22, 16, 22, 16),
+            actionsPadding: const EdgeInsets.fromLTRB(22, 0, 22, 20),
+            title: Row(
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Icon(LucideIcons.gitFork, color: Color(0xFF10B981), size: 22),
+                ),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Pilih Cabang Operasional',
+                        style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Pilih outlet yang ingin Anda kelola sebagai Admin:',
+                        style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: branches.map((branch) {
+                final isSelected = selectedBranch == branch['id'];
+                final Color branchColor = branch['color'] as Color;
+
+                return Padding(
+                  padding: const EdgeInsets.only(bottom: 10.0),
+                  child: InkWell(
+                    onTap: () {
+                      setDialogState(() {
+                        selectedBranch = branch['id'] as String;
+                      });
+                    },
+                    borderRadius: BorderRadius.circular(16),
+                    child: Container(
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? branchColor.withValues(alpha: 0.12)
+                            : const Color(0xFF1E293B),
+                        borderRadius: BorderRadius.circular(16),
+                        border: Border.all(
+                          color: isSelected ? branchColor : const Color(0xFF334155),
+                          width: isSelected ? 1.8 : 1.0,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 38,
+                            height: 38,
+                            decoration: BoxDecoration(
+                              color: branchColor.withValues(alpha: 0.2),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: Center(
+                              child: Icon(branch['icon'] as IconData, color: branchColor, size: 20),
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  children: [
+                                    Text(
+                                      branch['name'] as String,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                        fontSize: 13.5,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1.5),
+                                      decoration: BoxDecoration(
+                                        color: branchColor.withValues(alpha: 0.2),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Text(
+                                        branch['badge'] as String,
+                                        style: TextStyle(
+                                          color: branchColor,
+                                          fontSize: 9,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  branch['desc'] as String,
+                                  style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10.5),
+                                ),
+                              ],
+                            ),
+                          ),
+                          Icon(
+                            isSelected ? LucideIcons.checkCircle2 : LucideIcons.circle,
+                            color: isSelected ? branchColor : const Color(0xFF64748B),
+                            size: 20,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+            actions: [
+              SizedBox(
+                width: double.infinity,
+                height: 44,
+                child: ElevatedButton.icon(
+                  onPressed: () async {
+                    Navigator.pop(dialogCtx);
+                    await StorageService().setActiveToko(selectedBranch);
+                    if (!mounted) return;
+
+                    _showSuccessSnackBar('Login berhasil! Cabang aktif: $selectedBranch');
+                    await Future.delayed(const Duration(milliseconds: 300));
+                    if (!mounted) return;
+
+                    Navigator.pushReplacement(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => MainNavigationScreen(
+                          role: 'Admin',
+                          tokoId: selectedBranch,
+                          initialIndex: 0,
+                        ),
+                        settings: RouteSettings(
+                          arguments: {'role': 'Admin', 'tokoId': selectedBranch},
+                        ),
+                      ),
+                    );
+                  },
+                  icon: const Icon(LucideIcons.arrowRight, size: 18),
+                  label: Text(
+                    'Buka $selectedBranch',
+                    style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                  ),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.black,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    elevation: 3,
+                  ),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
   }
 
   void _showSuccessSnackBar(String message) {
@@ -194,7 +401,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
                 const SizedBox(height: 4),
                 const Text(
-                  'Sistem Manajemen Stok & Kasir Warung Madura',
+                  'Sistem Manajemen Stok & Kasir Multi-Cabang',
                   style: TextStyle(
                     color: Color(0xFF94A3B8),
                     fontSize: 12,
@@ -423,7 +630,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 // Footer
                 const Text(
-                  'SmartStock AI • Role-Based Authentication',
+                  'SmartStock AI • Multi-Cabang & Role-Based Access',
                   style: TextStyle(color: Color(0xFF475569), fontSize: 10),
                 ),
               ],

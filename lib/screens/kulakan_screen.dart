@@ -22,17 +22,25 @@ class _KulakanScreenState extends State<KulakanScreen> {
   void initState() {
     super.initState();
     _loadData();
+    StorageService().activeTokoNotifier.addListener(_onTokoChanged);
   }
 
   @override
   void dispose() {
+    StorageService().activeTokoNotifier.removeListener(_onTokoChanged);
     _qtyController.dispose();
     super.dispose();
   }
 
+  void _onTokoChanged() {
+    if (mounted) {
+      _loadData();
+    }
+  }
+
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    final items = await StorageService().loadInventory();
+    final items = await StorageService().loadItems();
     setState(() {
       _allItems = items;
       _isLoading = false;
@@ -378,14 +386,14 @@ class _KulakanScreenState extends State<KulakanScreen> {
                   const SizedBox(width: 10),
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Text(
+                    children: [
+                      const Text(
                         'Wajib Kulak (Stok Menipis)',
                         style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13.5),
                       ),
                       Text(
-                        'Barang di bawah batas stok minimum',
-                        style: TextStyle(color: Color(0xFF94A3B8), fontSize: 10),
+                        'Cabang: ${StorageService().activeTokoName} • Di bawah batas minimum',
+                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 10),
                       ),
                     ],
                   ),
