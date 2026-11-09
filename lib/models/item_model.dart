@@ -8,6 +8,7 @@ enum ItemStatus {
 
 class ItemModel {
   final String id;
+  final String tokoId; // ID / Nama Cabang Toko (misal: "Toko Pusat", "Cabang 1", "Cabang 2")
   final String name;
   final String type; // 'barcode' atau 'computer_vision' / 'curah'
   final String barcode;
@@ -24,6 +25,7 @@ class ItemModel {
 
   const ItemModel({
     required this.id,
+    this.tokoId = 'Toko Pusat',
     required this.name,
     required this.type,
     required this.barcode,
@@ -99,11 +101,12 @@ class ItemModel {
   }
 
   // ==========================================
-  // COPYWITH & JSON SERIALIZATION
+  // COPYWITH, JSON / MAP SERIALIZATION
   // ==========================================
 
   ItemModel copyWith({
     String? id,
+    String? tokoId,
     String? name,
     String? type,
     String? barcode,
@@ -120,6 +123,7 @@ class ItemModel {
   }) {
     return ItemModel(
       id: id ?? this.id,
+      tokoId: tokoId ?? this.tokoId,
       name: name ?? this.name,
       type: type ?? this.type,
       barcode: barcode ?? this.barcode,
@@ -139,6 +143,7 @@ class ItemModel {
   Map<String, dynamic> toJson() {
     return {
       'id': id,
+      'tokoId': tokoId,
       'name': name,
       'type': type,
       'barcode': barcode,
@@ -155,9 +160,12 @@ class ItemModel {
     };
   }
 
+  Map<String, dynamic> toMap() => toJson();
+
   factory ItemModel.fromJson(Map<String, dynamic> json) {
     return ItemModel(
       id: json['id'] as String,
+      tokoId: json['tokoId'] as String? ?? 'Toko Pusat',
       name: json['name'] as String,
       type: json['type'] as String? ?? 'barcode',
       barcode: json['barcode'] as String? ?? '',
@@ -174,12 +182,18 @@ class ItemModel {
     );
   }
 
+  factory ItemModel.fromMap(Map<String, dynamic> map) => ItemModel.fromJson(map);
+
   // ==========================================
-  // INITIAL MOCK DATA (11 DEFAULT ITEMS)
+  // INITIAL MOCK DATA MULTI-CABANG
   // ==========================================
   static List<ItemModel> defaultInventory = [
+    // ------------------------------------------
+    // TOKO PUSAT (11 Item Standar)
+    // ------------------------------------------
     const ItemModel(
       id: "BRG-001",
+      tokoId: "Toko Pusat",
       name: "Indomie Goreng Spesial 85g",
       type: "barcode",
       barcode: "089686010924",
@@ -194,6 +208,7 @@ class ItemModel {
     ),
     const ItemModel(
       id: "BRG-002",
+      tokoId: "Toko Pusat",
       name: "Sabun Mandi Lifebuoy Total 10",
       type: "barcode",
       barcode: "8999999052028",
@@ -208,6 +223,7 @@ class ItemModel {
     ),
     const ItemModel(
       id: "BRG-003",
+      tokoId: "Toko Pusat",
       name: "Kopi Kapal Api Spesial Mix",
       type: "barcode",
       barcode: "8991001101234",
@@ -222,6 +238,7 @@ class ItemModel {
     ),
     const ItemModel(
       id: "BRG-004",
+      tokoId: "Toko Pusat",
       name: "Minyak Goreng Bimoli 1 Liter",
       type: "barcode",
       barcode: "8992745123456",
@@ -236,6 +253,7 @@ class ItemModel {
     ),
     const ItemModel(
       id: "BRG-005",
+      tokoId: "Toko Pusat",
       name: "Rokok Sampoerna A Mild 16",
       type: "barcode",
       barcode: "8992999123456",
@@ -250,6 +268,7 @@ class ItemModel {
     ),
     const ItemModel(
       id: "BRG-006",
+      tokoId: "Toko Pusat",
       name: "Telur Ayam Negeri Curah",
       type: "computer_vision",
       barcode: "CRH-8491",
@@ -266,6 +285,7 @@ class ItemModel {
     ),
     const ItemModel(
       id: "BRG-007",
+      tokoId: "Toko Pusat",
       name: "Beras Ramos Wangi Curah",
       type: "computer_vision",
       barcode: "CRH-8492",
@@ -282,6 +302,7 @@ class ItemModel {
     ),
     const ItemModel(
       id: "BRG-008",
+      tokoId: "Toko Pusat",
       name: "Bawang Merah Brebes",
       type: "computer_vision",
       barcode: "CRH-8493",
@@ -298,6 +319,7 @@ class ItemModel {
     ),
     const ItemModel(
       id: "BRG-009",
+      tokoId: "Toko Pusat",
       name: "Bawang Putih Kating",
       type: "computer_vision",
       barcode: "CRH-8494",
@@ -314,6 +336,7 @@ class ItemModel {
     ),
     const ItemModel(
       id: "BRG-010",
+      tokoId: "Toko Pusat",
       name: "Minyak Goreng Curah (Kiloan)",
       type: "computer_vision",
       barcode: "CRH-8495",
@@ -330,6 +353,7 @@ class ItemModel {
     ),
     const ItemModel(
       id: "BRG-011",
+      tokoId: "Toko Pusat",
       name: "Cabai Rawit Merah Pedas",
       type: "computer_vision",
       barcode: "CRH-8496",
@@ -344,6 +368,148 @@ class ItemModel {
       keywords: ["cabai", "cabe", "chili"],
       imageUrl: "https://images.unsplash.com/photo-1588252303782-cb80119abd6d?w=600&auto=format&fit=crop&q=80",
     ),
+
+    // ------------------------------------------
+    // CABANG 1 (Outlet Cabang 1)
+    // ------------------------------------------
+    const ItemModel(
+      id: "BRG-101",
+      tokoId: "Cabang 1",
+      name: "Indomie Goreng Spesial 85g",
+      type: "barcode",
+      barcode: "089686010924",
+      category: "Makanan Instan",
+      stock: 8.0,
+      minStock: 10.0,
+      maxStock: 40.0,
+      unit: "pcs",
+      img: "🍜",
+      price: 3500.0,
+      imageUrl: "https://images.unsplash.com/photo-1612927601601-6638404737ce?w=400&auto=format&fit=crop&q=80",
+    ),
+    const ItemModel(
+      id: "BRG-102",
+      tokoId: "Cabang 1",
+      name: "Kopi Kapal Api Spesial Mix",
+      type: "barcode",
+      barcode: "8991001101234",
+      category: "Minuman",
+      stock: 35.0,
+      minStock: 10.0,
+      maxStock: 30.0,
+      unit: "sachet",
+      img: "☕",
+      price: 2000.0,
+      imageUrl: "https://images.unsplash.com/photo-1541167760496-1628856ab772?w=400&auto=format&fit=crop&q=80",
+    ),
+    const ItemModel(
+      id: "BRG-103",
+      tokoId: "Cabang 1",
+      name: "Beras Ramos Wangi Curah",
+      type: "curah",
+      barcode: "CRH-1001",
+      category: "Sembako Curah",
+      stock: 6.0,
+      minStock: 12.0,
+      maxStock: 40.0,
+      unit: "kg",
+      img: "🌾",
+      price: 14500.0,
+      imageUrl: "https://images.unsplash.com/photo-1586201375761-83865001e31c?w=600&auto=format&fit=crop&q=80",
+    ),
+    const ItemModel(
+      id: "BRG-104",
+      tokoId: "Cabang 1",
+      name: "Telur Ayam Negeri Curah",
+      type: "curah",
+      barcode: "CRH-1002",
+      category: "Sembako Curah",
+      stock: 12.0,
+      minStock: 5.0,
+      maxStock: 20.0,
+      unit: "kg",
+      img: "🥚",
+      price: 28500.0,
+      imageUrl: "https://images.unsplash.com/photo-1582722872445-44dc5f7e3c8f?w=600&auto=format&fit=crop&q=80",
+    ),
+    const ItemModel(
+      id: "BRG-105",
+      tokoId: "Cabang 1",
+      name: "Sabun Mandi Lifebuoy Total 10",
+      type: "barcode",
+      barcode: "8999999052028",
+      category: "Perawatan Tubuh",
+      stock: 15.0,
+      minStock: 5.0,
+      maxStock: 25.0,
+      unit: "pcs",
+      img: "🧼",
+      price: 4500.0,
+      imageUrl: "https://images.unsplash.com/photo-1607006314644-88e999999c01?w=400&auto=format&fit=crop&q=80",
+    ),
+
+    // ------------------------------------------
+    // CABANG 2 (Outlet Cabang 2)
+    // ------------------------------------------
+    const ItemModel(
+      id: "BRG-201",
+      tokoId: "Cabang 2",
+      name: "Indomie Goreng Spesial 85g",
+      type: "barcode",
+      barcode: "089686010924",
+      category: "Makanan Instan",
+      stock: 45.0,
+      minStock: 10.0,
+      maxStock: 40.0,
+      unit: "pcs",
+      img: "🍜",
+      price: 3500.0,
+      imageUrl: "https://images.unsplash.com/photo-1612927601601-6638404737ce?w=400&auto=format&fit=crop&q=80",
+    ),
+    const ItemModel(
+      id: "BRG-202",
+      tokoId: "Cabang 2",
+      name: "Minyak Goreng Bimoli 1 Liter",
+      type: "barcode",
+      barcode: "8992745123456",
+      category: "Sembako",
+      stock: 2.0,
+      minStock: 6.0,
+      maxStock: 20.0,
+      unit: "pouch",
+      img: "🛢️",
+      price: 19500.0,
+      imageUrl: "https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=400&auto=format&fit=crop&q=80",
+    ),
+    const ItemModel(
+      id: "BRG-203",
+      tokoId: "Cabang 2",
+      name: "Bawang Merah Brebes",
+      type: "curah",
+      barcode: "CRH-2001",
+      category: "Bumbu Dapur",
+      stock: 1.5,
+      minStock: 3.0,
+      maxStock: 10.0,
+      unit: "kg",
+      img: "🧅",
+      price: 33000.0,
+      imageUrl: "https://images.unsplash.com/photo-1618512496248-a07fe83aa8cb?w=600&auto=format&fit=crop&q=80",
+    ),
+    const ItemModel(
+      id: "BRG-204",
+      tokoId: "Cabang 2",
+      name: "Rokok Sampoerna A Mild 16",
+      type: "barcode",
+      barcode: "8992999123456",
+      category: "Rokok",
+      stock: 18.0,
+      minStock: 5.0,
+      maxStock: 25.0,
+      unit: "bungkus",
+      img: "🚬",
+      price: 34000.0,
+      imageUrl: "https://images.unsplash.com/photo-1527864550417-7fd91fc51a46?w=400&auto=format&fit=crop&q=80",
+    ),
   ];
 }
-

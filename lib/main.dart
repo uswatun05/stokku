@@ -70,11 +70,13 @@ class StokKuApp extends StatelessWidget {
 
 class MainNavigationScreen extends StatefulWidget {
   final String? role; // 'Admin' atau 'Karyawan'
+  final String? tokoId; // 'Toko Pusat', 'Cabang 1', 'Cabang 2'
   final int initialIndex;
 
   const MainNavigationScreen({
     super.key,
     this.role,
+    this.tokoId,
     this.initialIndex = 0,
   });
 
@@ -91,9 +93,27 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     super.initState();
     _currentIndex = widget.initialIndex;
     _isAudioMuted = AudioService().isMuted;
+
+    if (widget.tokoId != null && widget.tokoId!.isNotEmpty) {
+      StorageService().setActiveToko(widget.tokoId!);
+    }
+
+    StorageService().activeTokoNotifier.addListener(_onTokoChanged);
   }
 
-  /// Mendeteksi role pengguna aktif (dari widget constructor argument atau RouteSettings arguments)
+  @override
+  void dispose() {
+    StorageService().activeTokoNotifier.removeListener(_onTokoChanged);
+    super.dispose();
+  }
+
+  void _onTokoChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  /// Mendeteksi role pengguna aktif (dari parameter constructor atau RouteSettings)
   String get _currentRole {
     if (widget.role != null && widget.role!.isNotEmpty) {
       return widget.role!;
@@ -164,6 +184,99 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
         ),
       ];
     }
+  }
+
+  /// BottomSheet untuk Admin mengganti cabang operasional secara langsung
+  void _showSwitchBranchSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF0F172A),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Row(
+                  children: [
+                    Icon(LucideIcons.store, color: Color(0xFF10B981), size: 22),
+                    SizedBox(width: 10),
+                    Text(
+                      'Pindah Cabang Operasional',
+                      style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Pilih cabang yang ingin Anda tinjau atau kelola inventarisnya:',
+                  style: TextStyle(color: Color(0xFF94A3B8), fontSize: 11.5),
+                ),
+                const SizedBox(height: 16),
+                ...StorageService.availableTokoList.map((toko) {
+                  final isCurrent = toko == StorageService().activeTokoId;
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 8.0),
+                    child: ListTile(
+                      tileColor: isCurrent ? const Color(0xFF10B981).withValues(alpha: 0.15) : const Color(0xFF1E293B),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                        side: BorderSide(
+                          color: isCurrent ? const Color(0xFF10B981) : const Color(0xFF334155),
+                          width: isCurrent ? 1.5 : 1.0,
+                        ),
+                      ),
+                      leading: Icon(
+                        toko == 'Toko Pusat' ? LucideIcons.building2 : LucideIcons.store,
+                        color: isCurrent ? const Color(0xFF10B981) : const Color(0xFF94A3B8),
+                      ),
+                      title: Text(
+                        toko,
+                        style: TextStyle(
+                          color: isCurrent ? const Color(0xFF6EE7B7) : Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 13.5,
+                        ),
+                      ),
+                      subtitle: Text(
+                        toko == 'Toko Pusat' ? 'Gudang Pusat & Kasir Utama' : 'Outlet Ritel Cabang',
+                        style: const TextStyle(color: Color(0xFF94A3B8), fontSize: 11),
+                      ),
+                      trailing: isCurrent
+                          ? const Icon(LucideIcons.check, color: Color(0xFF10B981), size: 20)
+                          : null,
+                      onTap: () async {
+                        Navigator.pop(ctx);
+                        await StorageService().setActiveToko(toko);
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Row(
+                              children: [
+                                const Icon(LucideIcons.checkCircle2, color: Colors.white, size: 18),
+                                const SizedBox(width: 8),
+                                Text('Cabang aktif beralih ke: $toko'),
+                              ],
+                            ),
+                            backgroundColor: const Color(0xFF10B981),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      },
+                    ),
+                  );
+                }),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   void _toggleAudioMute() async {
@@ -239,9 +352,9 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
     }
 
     return Scaffold(
-      // Top Header: Identitas Warung, Lencana Role, Audio Mute, & Logout
+      // Top Header: Identitas Warung, Indikator Cabang Aktif, Role Badge, Mute, & Logout
       appBar: PreferredSize(
-        preferredSize: const Size.fromHeight(68.0),
+        preferredSize: const Size.fromHeight(70.0),
         child: Container(
           decoration: const BoxDecoration(
             color: Color(0xFF0F172A),
@@ -259,7 +372,7 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // Logo Warung & Role Badge
+                  // Logo Warung & Indikator Cabang Aktif
                   Row(
                     children: [
                       Container(
@@ -295,11 +408,11 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                           Row(
                             children: [
                               const Text(
-                                'WARUNG MADURA',
+                                'StokKu',
                                 style: TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.w900,
-                                  fontSize: 14,
+                                  fontSize: 14.5,
                                   letterSpacing: 0.5,
                                 ),
                               ),
@@ -332,29 +445,35 @@ class _MainNavigationScreenState extends State<MainNavigationScreen> {
                               ),
                             ],
                           ),
-                          const SizedBox(height: 2),
-                          Row(
-                            children: [
-                              Container(
-                                width: 6,
-                                height: 6,
-                                decoration: BoxDecoration(
-                                  color: _isAdmin ? const Color(0xFF10B981) : const Color(0xFF38BDF8),
-                                  shape: BoxShape.circle,
+                          const SizedBox(height: 3),
+                          // INDIKATOR CABANG AKTIF (Interactive untuk Admin)
+                          ValueListenableBuilder<String>(
+                            valueListenable: StorageService().activeTokoNotifier,
+                            builder: (context, activeToko, _) {
+                              return InkWell(
+                                onTap: _isAdmin ? _showSwitchBranchSheet : null,
+                                borderRadius: BorderRadius.circular(6),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(LucideIcons.mapPin, color: Color(0xFF10B981), size: 12),
+                                    const SizedBox(width: 4),
+                                    Text(
+                                      'Cabang Aktif: $activeToko',
+                                      style: const TextStyle(
+                                        color: Color(0xFF38BDF8),
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    if (_isAdmin) ...[
+                                      const SizedBox(width: 3),
+                                      const Icon(LucideIcons.chevronDown, color: Color(0xFF38BDF8), size: 12),
+                                    ],
+                                  ],
                                 ),
-                              ),
-                              const SizedBox(width: 6),
-                              Text(
-                                _isAdmin
-                                    ? 'StokKu • Hak Akses Penuh (4 Tab)'
-                                    : 'StokKu • Akses Kasir & Stok (2 Tab)',
-                                style: const TextStyle(
-                                  color: Color(0xFF94A3B8),
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
+                              );
+                            },
                           ),
                         ],
                       ),

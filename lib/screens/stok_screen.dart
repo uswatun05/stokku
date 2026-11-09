@@ -51,17 +51,25 @@ class _StokScreenState extends State<StokScreen> {
   void initState() {
     super.initState();
     _loadData();
+    StorageService().activeTokoNotifier.addListener(_onTokoChanged);
   }
 
   @override
   void dispose() {
+    StorageService().activeTokoNotifier.removeListener(_onTokoChanged);
     _searchController.dispose();
     super.dispose();
   }
 
+  void _onTokoChanged() {
+    if (mounted) {
+      _loadData();
+    }
+  }
+
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
-    final items = await StorageService().loadInventory();
+    final items = await StorageService().loadItems();
     setState(() {
       _allItems = items;
       _isLoading = false;
@@ -139,7 +147,7 @@ class _StokScreenState extends State<StokScreen> {
                   pw.Column(
                     children: [
                       pw.Text(
-                        'WARUNG MADURA 24 JAM',
+                        'StokKu',
                         style: pw.TextStyle(
                           fontSize: 7.0,
                           fontWeight: pw.FontWeight.bold,
@@ -289,7 +297,7 @@ class _StokScreenState extends State<StokScreen> {
                 child: Column(
                   children: [
                     const Text(
-                      'WARUNG MADURA 24 JAM',
+                      'StokKu',
                       style: TextStyle(
                         color: Colors.black,
                         fontWeight: FontWeight.w900,
@@ -811,11 +819,14 @@ class _StokScreenState extends State<StokScreen> {
 
                   String barcode = barcodeCtrl.text.trim();
                   if (barcode.isEmpty) {
-                    barcode = isCurahMode ? _generateUniqueBarcode() : '0000000000';
+                    barcode = isCurahMode
+                        ? _generateUniqueBarcode()
+                        : StorageService().generateDefaultBarcode();
                   }
 
                   final newItem = ItemModel(
                     id: StorageService().generateNextItemId(),
+                    tokoId: StorageService().activeTokoId,
                     name: name,
                     type: selectedType,
                     barcode: barcode,
@@ -841,11 +852,20 @@ class _StokScreenState extends State<StokScreen> {
                     } else {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text('✅ ${newItem.name} berhasil ditambahkan ke inventaris.'),
+                          content: Text('✅ ${newItem.name} berhasil disimpan permanen.'),
                           backgroundColor: const Color(0xFF10B981),
                         ),
                       );
                     }
+                  } else {
+                    await AudioService().playWarning();
+                    if (!mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('⚠️ Barcode sudah terdaftar pada barang lain di cabang ini!'),
+                        backgroundColor: Color(0xFFDC2626),
+                      ),
+                    );
                   }
                 },
                 icon: const Icon(LucideIcons.save, size: 16),
@@ -1231,30 +1251,80 @@ class _StokScreenState extends State<StokScreen> {
   }
 
   Widget _buildStatsSummaryRow() {
-    return Row(
+    return Column(
       children: [
-        _buildStatItem(
-          label: 'Total SKU',
-          value: '${_allItems.length}',
-          sub: 'Produk',
-          color: const Color(0xFF38BDF8),
-          icon: LucideIcons.boxes,
+        // Indikator Cabang Aktif
+        Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: const Color(0xFF0F172A),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: const Color(0xFF1E293B)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Row(
+                children: [
+                  const Icon(LucideIcons.mapPin, color: Color(0xFF10B981), size: 14),
+                  const SizedBox(width: 6),
+                  Text(
+                    'Cabang Aktif: ${StorageService().activeTokoName}',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${_allItems.length} SKU',
+                  style: const TextStyle(
+                    color: Color(0xFF6EE7B7),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
-        const SizedBox(width: 8),
-        _buildStatItem(
-          label: 'Stok Menipis',
-          value: '$_menipisCount',
-          sub: 'Wajib Kulak',
-          color: const Color(0xFFF59E0B),
-          icon: LucideIcons.alertTriangle,
-        ),
-        const SizedBox(width: 8),
-        _buildStatItem(
-          label: 'Overstock',
-          value: '$_overstockCount',
-          sub: 'Tunda Kulak',
-          color: const Color(0xFFEF4444),
-          icon: LucideIcons.alertOctagon,
+
+        // Row Statistik Produk (Total SKU, Menipis, Overstock)
+        Row(
+          children: [
+            _buildStatItem(
+              label: 'Total SKU',
+              value: '${_allItems.length}',
+              sub: 'Produk',
+              color: const Color(0xFF38BDF8),
+              icon: LucideIcons.boxes,
+            ),
+            const SizedBox(width: 8),
+            _buildStatItem(
+              label: 'Stok Menipis',
+              value: '$_menipisCount',
+              sub: 'Wajib Kulak',
+              color: const Color(0xFFF59E0B),
+              icon: LucideIcons.alertTriangle,
+            ),
+            const SizedBox(width: 8),
+            _buildStatItem(
+              label: 'Overstock',
+              value: '$_overstockCount',
+              sub: 'Tunda Kulak',
+              color: const Color(0xFFEF4444),
+              icon: LucideIcons.alertOctagon,
+            ),
+          ],
         ),
       ],
     );
